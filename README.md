@@ -5,9 +5,9 @@ as in-process services:
 
 | Toolchain | Route | What it does |
 |-----------|-------|--------------|
-| [`its_DomainModel`](../its_DomainModel) | `POST /rpc/domain` | Validate/convert domain models & decision trees (LOQI / XML / RDF / CSV dictionaries) |
-| [`its_Reasoner`](../its_Reasoner) | `POST /rpc/reasoner` | Run decision-tree reasoning and LOQI expression queries |
-| [`meaning_tree`](../meaning_tree) | `POST /rpc/meaning-tree` | Translate / serialize source code via the universal Meaning Tree |
+| its_DomainModel | `POST /rpc/domain` | Validate/convert domain models & decision trees (LOQI / XML / RDF / CSV dictionaries) |
+| its_Reasoner | `POST /rpc/reasoner` | Run decision-tree reasoning and LOQI expression queries |
+| meaning_tree | `POST /rpc/meaning-tree` | Translate / serialize source code via the universal Meaning Tree |
 
 ## Why this exists
 
@@ -62,15 +62,42 @@ This produces the runnable fat JAR `target/compph-toolchain-server-<version>.jar
 java -jar target/compph-toolchain-server-0.1.0.jar [PORT]
 ```
 
-Configuration:
+Configuration comes from process environment variables and/or a `.env` file in the working directory
+(real environment variables take precedence; override the `.env` location with `DOTENV_PATH`). Copy
+[`.env.example`](.env.example) to `.env` to get started.
 
 | Setting | Source | Default |
 |---------|--------|---------|
-| Port | first CLI arg, or `PORT` env var | `8080` |
-| Host/bind address | `HOST` env var | `0.0.0.0` |
+| Port | first CLI arg, or `PORT` | `8080` |
+| Host/bind address | `HOST` | `0.0.0.0` |
+| Access secret | `ACCESS_SECRET` | _(disabled)_ |
 
 On start-up the server prints its address and the available routes. Open `http://<host>:<port>/` for
 the documentation index.
+
+## Authentication
+
+The RPC routes (`POST /rpc/*`) can be guarded by an optional shared secret set via `ACCESS_SECRET`
+(in the environment or `.env`):
+
+- **If `ACCESS_SECRET` is set** (non-blank): every RPC request must present the matching secret,
+  otherwise the server responds with **HTTP 403**. The secret can be sent as:
+  - an `X-Access-Secret: <secret>` header, or
+  - an `Authorization: Bearer <secret>` header, or
+  - an `access_secret=<secret>` query parameter.
+- **If `ACCESS_SECRET` is unset/blank:** access is open and any secret a client happens to send is
+  ignored.
+
+The documentation and health endpoints (`/`, `/health`, `/{route}/docs`, `/{route}/openrpc.json`)
+are always open.
+
+```bash
+# With ACCESS_SECRET=s3cret in the environment / .env
+curl -s http://localhost:8080/rpc/meaning-tree \
+  -H 'X-Access-Secret: s3cret' \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"list-langs","params":{}}'
+```
 
 ## Documentation endpoints
 

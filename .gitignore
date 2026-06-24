@@ -15,3 +15,6 @@ Thumbs.db
 
 # Runtime temp / materialized request directories
 /tmp-requests/
+
+# Local environment / secrets
+.env

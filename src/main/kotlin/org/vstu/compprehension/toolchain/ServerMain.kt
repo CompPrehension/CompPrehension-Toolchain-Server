@@ -23,8 +23,9 @@ private val MODULES: List<ToolModule> = listOf(
 )
 
 fun main(args: Array<String>) {
-    val host = System.getenv("HOST") ?: "0.0.0.0"
-    val port = (args.firstOrNull() ?: System.getenv("PORT"))?.toIntOrNull() ?: 8080
+    val host = Env["HOST"] ?: "0.0.0.0"
+    val port = (args.firstOrNull() ?: Env["PORT"])?.toIntOrNull() ?: 8080
+    Auth.secret = Env["ACCESS_SECRET"]?.takeIf { it.isNotBlank() }
 
     val app = Javalin.create { config ->
         config.showJavalinBanner = false
@@ -46,10 +47,16 @@ fun main(args: Array<String>) {
 
     println("CompPrehension Toolchain Server $SERVER_VERSION listening on http://$host:$port")
     println("Docs:  http://$host:$port/")
+    println(if (Auth.isConfigured()) "Access secret: ENABLED (send 'X-Access-Secret' header)" else "Access secret: disabled (open access)")
     MODULES.forEach { println("  POST ${it.route}   (docs: ${it.route}/docs)") }
 }
 
 private fun handleRpc(module: ToolModule, ctx: Context) {
+    if (!Auth.authorized(ctx)) {
+        ctx.status(403).contentType("application/json")
+            .result(Json.writeString(mapOf("error" to "Forbidden: missing or invalid access secret")))
+        return
+    }
     val parts = LinkedHashMap<String, ByteArray>()
     val bodyText: String
     try {
