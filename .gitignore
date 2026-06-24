@@ -1,0 +1,17 @@
+target/
+*.class
+*.log
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime temp / materialized request directories
+/tmp-requests/
