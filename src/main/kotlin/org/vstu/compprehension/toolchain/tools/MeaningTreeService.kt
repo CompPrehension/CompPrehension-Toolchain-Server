@@ -19,7 +19,6 @@ import org.vstu.compprehension.toolchain.rpc.invalidParams
 import org.vstu.compprehension.toolchain.textOrNull
 import org.vstu.meaningtree.Main
 import org.vstu.meaningtree.MeaningTree
-import org.vstu.meaningtree.Serializable
 import org.vstu.meaningtree.languages.LanguageTranslator
 import org.vstu.meaningtree.languages.SourceMapGenerator
 import org.vstu.meaningtree.languages.configs.Config
@@ -36,6 +35,7 @@ import org.vstu.meaningtree.serializers.xml.XMLDeserializer
 import org.vstu.meaningtree.serializers.xml.XMLSerializer
 import org.vstu.meaningtree.utils.tokens.Token
 import java.io.File
+import java.io.Serializable
 import java.io.StringReader
 import java.io.StringWriter
 import java.nio.file.Path
