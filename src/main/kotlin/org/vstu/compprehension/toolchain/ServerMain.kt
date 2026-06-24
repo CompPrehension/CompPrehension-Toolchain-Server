@@ -2,6 +2,8 @@ package org.vstu.compprehension.toolchain
 
 import com.fasterxml.jackson.databind.node.NullNode
 import io.javalin.Javalin
+import io.javalin.compression.CompressionStrategy
+import io.javalin.compression.Gzip
 import io.javalin.http.Context
 import org.vstu.compprehension.toolchain.docs.HtmlDocs
 import org.vstu.compprehension.toolchain.docs.OpenRpc
@@ -30,6 +32,9 @@ fun main(args: Array<String>) {
     val app = Javalin.create { config ->
         config.showJavalinBanner = false
         config.http.maxRequestSize = 64L * 1024 * 1024 // 64 MiB inline bodies
+        config.http.customCompression(CompressionStrategy(null, Gzip()).apply {
+            defaultMinSizeForCompression = 512 * 1024
+        })
     }
 
     app.get("/") { ctx -> ctx.html(HtmlDocs.index(MODULES, SERVER_VERSION)) }
