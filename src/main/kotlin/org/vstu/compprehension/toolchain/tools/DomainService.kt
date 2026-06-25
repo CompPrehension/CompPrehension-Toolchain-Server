@@ -63,12 +63,14 @@ object DomainService {
         params = listOf(
             ParamDoc("model", "Directory with domain.loqi, tag_*.loqi and tree files (or CSV+TTL for DICT_RDF).", true, Schemas.dirSource()),
             ParamDoc("buildMethod", "How to build the model.", false, Schemas.enumOf("LOQI", "DICT_RDF")),
+            ParamDoc("debug", "Skip the check for debug-namespace procedures in decision trees.", false, Schemas.boolean(false)),
         ),
         result = ResultDoc("result", "Validation outcome.", Schemas.obj()),
     ) { call ->
         val dir = call.workspace.materializeDir(call.params.child("model"), "model")
         val buildMethod = parseBuildMethod(call.params.textOrNull("buildMethod"))
-        DomainSolvingModel(dir.toString(), buildMethod).validate()
+        val debug = call.params.boolOr("debug", false)
+        DomainSolvingModel(dir.toString(), buildMethod).validate(debug = debug)
         mapOf("valid" to true, "buildMethod" to buildMethod.name)
     }
 
