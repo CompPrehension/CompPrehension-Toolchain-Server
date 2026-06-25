@@ -24,10 +24,13 @@ private val MODULES: List<ToolModule> = listOf(
     MeaningTreeService.module(),
 )
 
+private val TRUTHY = setOf("true", "1", "yes", "on")
+
 fun main(args: Array<String>) {
     val host = Env["HOST"] ?: "0.0.0.0"
     val port = (args.firstOrNull() ?: Env["PORT"])?.toIntOrNull() ?: 8080
     Auth.secret = Env["ACCESS_SECRET"]?.takeIf { it.isNotBlank() }
+    LocalFilesDiscovery.enabled = Env["LOCAL_FILES_DISCOVERY"]?.trim()?.lowercase() in TRUTHY
 
     val app = Javalin.create { config ->
         config.showJavalinBanner = false
@@ -53,6 +56,7 @@ fun main(args: Array<String>) {
     println("CompPrehension Toolchain Server $SERVER_VERSION listening on http://$host:$port")
     println("Docs:  http://$host:$port/")
     println(if (Auth.isConfigured()) "Access secret: ENABLED (send 'X-Access-Secret' header)" else "Access secret: disabled (open access)")
+    println(if (LocalFilesDiscovery.isEnabled()) "Local files discovery: ENABLED (clients may reference local paths)" else "Local files discovery: disabled (payload-only mode)")
     MODULES.forEach { println("  POST ${it.route}   (docs: ${it.route}/docs)") }
 }
 

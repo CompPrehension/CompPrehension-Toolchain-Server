@@ -64,7 +64,8 @@ object Schemas {
     /** Schema describing the FileSource union accepted by [FileWorkspace]. */
     fun fileSource(): Map<String, Any?> = mapOf(
         "title" to "FileSource",
-        "description" to "Inline string (text), or an object: {text} | {base64} | {ref:<multipart field>}",
+        "description" to "Inline string (text), or an object: {text} | {base64} | {ref:<multipart field>} | {path:<local path>}. " +
+            "The 'path' variant requires LOCAL_FILES_DISCOVERY=true on the server.",
         "oneOf" to listOf(
             mapOf("type" to "string"),
             mapOf(
@@ -73,6 +74,7 @@ object Schemas {
                     "text" to mapOf("type" to "string"),
                     "base64" to mapOf("type" to "string"),
                     "ref" to mapOf("type" to "string", "description" to "Multipart form-field name of the uploaded file"),
+                    "path" to mapOf("type" to "string", "description" to "Absolute local filesystem path (requires LOCAL_FILES_DISCOVERY=true)"),
                     "name" to mapOf("type" to "string", "description" to "Optional file name hint")
                 )
             )
@@ -82,7 +84,8 @@ object Schemas {
     /** Schema describing the DirSource union accepted by [FileWorkspace]. */
     fun dirSource(): Map<String, Any?> = mapOf(
         "title" to "DirSource",
-        "description" to "An imitated directory: {files:{relpath:FileSource}} or {ref:<multipart zip field>}",
+        "description" to "An imitated directory: {files:{relpath:FileSource}}, {ref:<multipart zip field>}, " +
+            "or {path:<local dir path>} (requires LOCAL_FILES_DISCOVERY=true on the server).",
         "type" to "object",
         "properties" to mapOf(
             "files" to mapOf(
@@ -90,7 +93,8 @@ object Schemas {
                 "description" to "Map of relative path -> FileSource",
                 "additionalProperties" to fileSource()
             ),
-            "ref" to mapOf("type" to "string", "description" to "Multipart form-field name of an uploaded .zip archive")
+            "ref" to mapOf("type" to "string", "description" to "Multipart form-field name of an uploaded .zip archive"),
+            "path" to mapOf("type" to "string", "description" to "Absolute local filesystem path to an existing directory (requires LOCAL_FILES_DISCOVERY=true)")
         )
     )
 }

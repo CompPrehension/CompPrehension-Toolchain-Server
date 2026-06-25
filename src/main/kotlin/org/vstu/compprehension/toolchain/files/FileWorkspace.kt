@@ -1,6 +1,7 @@
 package org.vstu.compprehension.toolchain.files
 
 import com.fasterxml.jackson.databind.JsonNode
+import org.vstu.compprehension.toolchain.LocalFilesDiscovery
 import org.vstu.compprehension.toolchain.rpc.RpcErrorCodes
 import org.vstu.compprehension.toolchain.rpc.RpcException
 import java.io.Closeable
@@ -10,7 +11,6 @@ import java.nio.file.Path
 import java.util.Base64
 import java.util.zip.ZipInputStream
 import kotlin.io.path.createDirectories
-import kotlin.io.path.name
 
 /**
  * Resolves the "imitated" file and directory payloads carried by an RPC request and materializes
@@ -19,9 +19,11 @@ import kotlin.io.path.name
  *
  * Payload shapes accepted (see project README / OpenRPC docs):
  *  - FileSource: a bare JSON string (inline text), or an object with one of
- *      `{ "text": "..." }`, `{ "base64": "..." }`, `{ "ref": "<multipart field name>" }`.
- *  - DirSource: `{ "files": { "<relative/path>": <FileSource>, ... } }`
- *      or `{ "ref": "<multipart field name of a .zip archive>" }`.
+ *      `{ "text": "..." }`, `{ "base64": "..." }`, `{ "ref": "<multipart field name>" }`,
+ *      `{ "path": "<absolute local path>" }` (requires LOCAL_FILES_DISCOVERY=true).
+ *  - DirSource: `{ "files": { "<relative/path>": <FileSource>, ... } }`,
+ *      `{ "ref": "<multipart field name of a .zip archive>" }`,
+ *      or `{ "path": "<absolute local directory path>" }` (requires LOCAL_FILES_DISCOVERY=true).
  *
  * @param parts multipart file parts keyed by their form-field name (empty for application/json).
  */
@@ -48,7 +50,7 @@ class FileWorkspace(private val parts: Map<String, ByteArray>) : Closeable {
             return node.asText().toByteArray(StandardCharsets.UTF_8)
         }
         if (!node.isObject) {
-            throw payloadError("File payload '$label' must be a string or an object with text/base64/ref")
+            throw payloadError("File payload '$label' must be a string or an object with text/base64/ref/path")
         }
         node.get("text")?.let { return it.asText().toByteArray(StandardCharsets.UTF_8) }
         node.get("base64")?.let {
@@ -64,17 +66,37 @@ class FileWorkspace(private val parts: Map<String, ByteArray>) : Closeable {
                 "File payload '$label' references multipart part '$ref' which was not uploaded"
             )
         }
-        throw payloadError("File payload '$label' must contain one of: text, base64, ref")
+        node.get("path")?.let { pathNode ->
+            requireLocalFilesEnabled(label)
+            val path = Path.of(pathNode.asText())
+            if (!Files.isRegularFile(path)) {
+                throw payloadError("Local file does not exist or is not a regular file: $path")
+            }
+            return Files.readAllBytes(path)
+        }
+        throw payloadError("File payload '$label' must contain one of: text, base64, ref, path")
     }
 
     fun resolveText(node: JsonNode?, label: String): String =
         String(resolveBytes(node, label), StandardCharsets.UTF_8)
 
     /**
-     * Writes a single FileSource into a scratch directory and returns its path, so it can be passed
-     * to APIs that require a real file (e.g. XML/TTL builders).
+     * Returns a [Path] to a materialized file for APIs that need a real path (e.g. XML/TTL builders).
+     *
+     * When the payload is `{"path":"..."}` and LOCAL_FILES_DISCOVERY is enabled, the local path is
+     * returned directly (no copy). Otherwise the bytes are written into a scratch temp directory.
      */
     fun materializeFile(node: JsonNode?, label: String, fallbackName: String): Path {
+        if (node != null && !node.isNull && node.isObject) {
+            node.get("path")?.let { pathNode ->
+                requireLocalFilesEnabled(label)
+                val path = Path.of(pathNode.asText())
+                if (!Files.isRegularFile(path)) {
+                    throw payloadError("Local file does not exist or is not a regular file: $path")
+                }
+                return path
+            }
+        }
         val bytes = resolveBytes(node, label)
         val name = (node?.get("name")?.asText()?.takeIf { it.isNotBlank() } ?: fallbackName)
         val safe = sanitizeFileName(name)
@@ -86,15 +108,29 @@ class FileWorkspace(private val parts: Map<String, ByteArray>) : Closeable {
     // ---- DirSource resolution --------------------------------------------------------------
 
     /**
-     * Materializes a DirSource into a fresh temporary directory and returns it.
+     * Materializes a DirSource into a directory path and returns it.
+     *
+     * When the payload is `{"path":"..."}` and LOCAL_FILES_DISCOVERY is enabled, the local
+     * directory is returned directly (no copy, no cleanup on close). Otherwise a fresh temporary
+     * directory is created, populated, and registered for cleanup.
      */
     fun materializeDir(node: JsonNode?, label: String): Path {
         if (node == null || node.isNull) {
             throw RpcException(RpcErrorCodes.INVALID_PARAMS, "Missing required directory payload '$label'")
         }
         if (!node.isObject) {
-            throw payloadError("Directory payload '$label' must be an object with 'files' or 'ref'")
+            throw payloadError("Directory payload '$label' must be an object with 'files', 'ref', or 'path'")
         }
+
+        node.get("path")?.let { pathNode ->
+            requireLocalFilesEnabled(label)
+            val path = Path.of(pathNode.asText())
+            if (!Files.isDirectory(path)) {
+                throw payloadError("Local directory does not exist: $path")
+            }
+            return path
+        }
+
         val dir = newTempDir("dir")
 
         val filesNode = node.get("files")
@@ -124,7 +160,7 @@ class FileWorkspace(private val parts: Map<String, ByteArray>) : Closeable {
             return dir
         }
 
-        throw payloadError("Directory payload '$label' must contain 'files' or 'ref'")
+        throw payloadError("Directory payload '$label' must contain one of: files, ref, path")
     }
 
     private fun unzipInto(zipBytes: ByteArray, dir: Path, label: String) {
@@ -146,6 +182,17 @@ class FileWorkspace(private val parts: Map<String, ByteArray>) : Closeable {
     }
 
     // ---- helpers ---------------------------------------------------------------------------
+
+    private fun requireLocalFilesEnabled(label: String) {
+        if (!LocalFilesDiscovery.isEnabled()) {
+            throw RpcException(
+                RpcErrorCodes.LOCAL_FILES_DISABLED,
+                "Payload '$label' uses the 'path' variant, but LOCAL_FILES_DISCOVERY is not enabled " +
+                "on this server. Set LOCAL_FILES_DISCOVERY=true in the server .env to allow local " +
+                "file-path references (local deployments only — do not enable on a network-exposed server)."
+            )
+        }
+    }
 
     private fun resolveInside(base: Path, relative: String, label: String): Path {
         val normalizedRel = relative.replace('\\', '/').trim('/')

@@ -17,6 +17,9 @@ object RpcErrorCodes {
 
     /** A referenced file/directory payload could not be resolved or materialized. */
     const val PAYLOAD_ERROR = -32001
+
+    /** Client sent a {"path":"..."} FileSource/DirSource but LOCAL_FILES_DISCOVERY is disabled. */
+    const val LOCAL_FILES_DISABLED = -32002
 }
 
 /** A JSON-RPC error object. */
