@@ -8,6 +8,7 @@ import its.model.definition.loqi.OperatorLoqiBuilder
 import its.model.nodes.DecisionTree
 import its.reasoner.LearningSituation
 import its.reasoner.ReasoningControl
+import its.reasoner.ReasoningException
 import its.reasoner.ReasoningOptions
 import its.reasoner.nodes.DecisionTreeReasoner.Companion.solve
 import its.reasoner.nodes.DecisionTreeTrace
@@ -16,6 +17,9 @@ import its.reasoner.utils.branchResultExceptionsEvent
 import its.reasoner.utils.expressionTraceEvent
 import its.reasoner.utils.formatDecisionTreeTrace
 import its.reasoner.utils.formatExpressionTraces
+import its.reasoner.utils.formatPartialDecisionTreeTrace
+import its.reasoner.utils.partialExpressionTraceEvent
+import its.reasoner.utils.partialTraceEvent
 import its.reasoner.utils.traceEvent
 import its.reasoner.utils.variablesEvent
 import org.vstu.compprehension.toolchain.boolOr
@@ -25,11 +29,14 @@ import org.vstu.compprehension.toolchain.intOrNull
 import org.vstu.compprehension.toolchain.rpc.ParamDoc
 import org.vstu.compprehension.toolchain.rpc.ResultDoc
 import org.vstu.compprehension.toolchain.rpc.RpcCall
+import org.vstu.compprehension.toolchain.rpc.RpcErrorCodes
+import org.vstu.compprehension.toolchain.rpc.RpcException
 import org.vstu.compprehension.toolchain.rpc.RpcMethod
 import org.vstu.compprehension.toolchain.rpc.Schemas
 import org.vstu.compprehension.toolchain.rpc.ToolModule
 import org.vstu.compprehension.toolchain.rpc.invalidParams
 import org.vstu.compprehension.toolchain.textOrNull
+import java.io.PrintWriter
 import java.io.StringReader
 import java.io.StringWriter
 import kotlin.system.measureNanoTime
@@ -95,8 +102,33 @@ object ReasonerService {
             decisionTree = if (treeName.isEmpty()) model.decisionTree else model.decisionTree(treeName)
             situation = LearningSituation(situationDomain, solvingContext = model)
         }
-        val solveNanos = measureNanoTime {
-            trace = decisionTree.solve(situation, ReasoningOptions(control, collect, collect))
+        val solveNanos = try {
+            measureNanoTime {
+                trace = decisionTree.solve(situation, ReasoningOptions(control, collect, collect))
+            }
+        } catch (e: RuntimeException) {
+            val rootEx = rootCause(e)
+            val re = e.findReasoningCause()
+            val data = linkedMapOf<String, Any?>(
+                "exceptionName" to e.javaClass.name,
+                "rootCause" to rootEx.javaClass.name,
+                "rootCauseMessage" to rootEx.message,
+                "stackTrace" to shortStackTrace(e),
+                "variables" to variablesEvent(situation.decisionTreeVariables.toMap())["value"],
+            )
+            if (debug) {
+                re?.expressionTrace?.let { exTrace ->
+                    data["partialExpressionTrace"] = if (jsonTrace)
+                        partialExpressionTraceEvent(exTrace, verbose)["value"]
+                    else formatExpressionTraces(exTrace, verbose)
+                }
+                re?.partialDecisionTreeTrace?.let { pt ->
+                    data["partialTrace"] = if (jsonTrace)
+                        partialTraceEvent(pt, verbose)["value"]
+                    else formatPartialDecisionTreeTrace(pt, verbose)
+                }
+            }
+            throw RpcException(RpcErrorCodes.TOOL_EXECUTION_ERROR, e.message ?: e.javaClass.name, data)
         }
 
         val exceptions = branchResultExceptionsEvent(trace)
@@ -153,12 +185,31 @@ object ReasonerService {
         val queryText = params.textOrNull("query") ?: invalidParams("'query' is required")
         val tag = params.textOrNull("tag")
 
-        val situation = buildQuerySituation(call, specificLoqi, tag, params.boolOr("debug", false))
+        val debug = params.boolOr("debug", false)
+        val situation = buildQuerySituation(call, specificLoqi, tag, debug)
         val expression = OperatorLoqiBuilder.buildExp(queryText)
 
         lateinit var queryResult: its.reasoner.operators.ExpressionQueryResult
-        val queryNanos = measureNanoTime {
-            queryResult = ExpressionQueryManager(situation, control).query(expression, collectTrace, limit)
+        val queryNanos = try {
+            measureNanoTime {
+                queryResult = ExpressionQueryManager(situation, control).query(expression, collectTrace, limit)
+            }
+        } catch (e: RuntimeException) {
+            val rootEx = rootCause(e)
+            val data = linkedMapOf<String, Any?>(
+                "exceptionName" to e.javaClass.name,
+                "rootCause" to rootEx.javaClass.name,
+                "rootCauseMessage" to rootEx.message,
+                "stackTrace" to shortStackTrace(e),
+            )
+            if (debug && collectTrace) {
+                e.findReasoningCause()?.expressionTrace?.let { exTrace ->
+                    data["partialExpressionTrace"] = if (jsonTrace)
+                        partialExpressionTraceEvent(exTrace, verbose)["value"]
+                    else formatExpressionTraces(exTrace, verbose)
+                }
+            }
+            throw RpcException(RpcErrorCodes.TOOL_EXECUTION_ERROR, e.message ?: e.javaClass.name, data)
         }
 
         val result = linkedMapOf<String, Any?>("objects" to queryResult.objectRefs.map { it.objectName })
@@ -215,4 +266,25 @@ object ReasonerService {
         "seconds" to nanos / 1_000_000_000.0,
         "milliseconds" to nanos / 1_000_000.0,
     )
+
+    private fun rootCause(e: Throwable): Throwable {
+        var current = e
+        while (current.cause != null && current.cause !== current) current = current.cause!!
+        return current
+    }
+
+    private fun shortStackTrace(e: Throwable): String {
+        val writer = StringWriter()
+        e.printStackTrace(PrintWriter(writer))
+        return writer.toString().lineSequence().take(25).joinToString("\n")
+    }
+
+    private fun Throwable.findReasoningCause(): ReasoningException? {
+        var current: Throwable? = this
+        while (current != null) {
+            if (current is ReasoningException) return current
+            current = current.cause
+        }
+        return null
+    }
 }
