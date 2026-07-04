@@ -44,16 +44,26 @@ object Dispatcher {
                     "Unknown method '$method' on route '${module.route}'. Known: ${module.methodsByName.keys.sorted()}"
                 )
 
-            val result = FileWorkspace(parts).use { ws ->
-                rpcMethod.handler(RpcCall(node.get("params"), ws))
-            }
+            val result = invoke(rpcMethod, node.get("params"), parts)
             return if (isNotification) null else RpcResponse.success(idNode, result)
         } catch (e: RpcException) {
             return if (isNotification) null else RpcResponse.failure(idNode, e.error)
-        } catch (e: Exception) {
-            return if (isNotification) null else RpcResponse.failure(idNode, toolError(e))
         }
     }
+
+    /**
+     * Runs one method's handler inside a fresh [FileWorkspace] and returns its result. Any handler
+     * exception is normalized into an [RpcException] carrying [toolError] diagnostics, so every
+     * caller (JSON-RPC dispatch and the MCP bridge) reports failures identically.
+     */
+    fun invoke(method: RpcMethod, params: JsonNode?, parts: Map<String, ByteArray>): Any? =
+        try {
+            FileWorkspace(parts).use { ws -> method.handler(RpcCall(params, ws)) }
+        } catch (e: RpcException) {
+            throw e
+        } catch (e: Exception) {
+            throw RpcException(toolError(e))
+        }
 
     private fun toolError(e: Exception): RpcError {
         val cause = rootCause(e)

@@ -23,6 +23,9 @@ object HtmlDocs {
             }
             append("</ul>")
             append("<h2>Health</h2><p><a href=\"/health\">/health</a></p>")
+            append("<h2>MCP</h2><p>All methods are also exposed over the ")
+            append("<a href=\"https://modelcontextprotocol.io\">Model Context Protocol</a> at ")
+            append("<code>POST /mcp</code> (Streamable HTTP). Tools are named <code>&lt;module&gt;__&lt;method&gt;</code>.</p>")
             append(payloadHelp())
         },
     )

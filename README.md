@@ -104,12 +104,39 @@ curl -s http://localhost:8080/rpc/meaning-tree \
 | Endpoint | Description |
 |----------|-------------|
 | `GET /` | HTML index listing all routes and the payload conventions |
-| `GET /health` | Liveness probe (`{"status":"ok"}`) |
+| `GET /health` | Liveness probe + self-description: server name, version, and the registry of available tools with their routes (`{"status":"ok","server":"compph-toolchain-server","version":"…","tools":[{"name":"its_DomainModel","route":"/rpc/domain","docs":"…","openrpc":"…"},…]}`) |
 | `GET {route}/docs` | Self-contained HTML docs for one toolchain |
 | `GET {route}/openrpc.json` | Machine-readable OpenRPC document for one toolchain |
+| `POST /mcp` | MCP (Model Context Protocol) endpoint exposing every method as an MCP tool — see below. Behind `ACCESS_SECRET` like the RPC routes. |
 
 The OpenRPC document can also be opened in the hosted
 [OpenRPC Playground](https://playground.open-rpc.org) (linked from each `/docs` page).
+
+## MCP endpoint (`POST /mcp`)
+
+The server also speaks the [Model Context Protocol](https://modelcontextprotocol.io) over a single
+Streamable-HTTP endpoint, so MCP-aware agents/clients can use the toolchains directly. Every RPC
+method becomes an MCP tool named `<module>__<method>` (e.g. `meaning-tree__list-langs`,
+`domain__validateDsm`); the tool list, input schemas, and output schemas are generated from the same
+registry that drives the HTTP RPC routes, so **any method or module you add shows up automatically**.
+
+Supported MCP methods: `initialize`, `tools/list`, `tools/call`, `ping`. The endpoint is stateless
+(no session id, no server-initiated SSE) and is guarded by `ACCESS_SECRET` when set — send it via
+`Authorization: Bearer <secret>` (or the other accepted forms). File arguments use the same
+FileSource/DirSource convention, minus the multipart `ref` variant (use `text`/`base64`/`path`).
+
+```bash
+# List the available tools
+curl -s http://localhost:8080/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# Call one (no arguments)
+curl -s http://localhost:8080/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"meaning-tree__list-langs","arguments":{}}}'
+```
+
+Point any MCP client (e.g. the [MCP Inspector](https://github.com/modelcontextprotocol/inspector))
+at `http://localhost:8080/mcp` using the **Streamable HTTP** transport.
 
 ## Request format
 
