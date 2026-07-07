@@ -14,10 +14,16 @@ import its.model.definition.rdf.DomainRDFFiller
 import its.model.definition.rdf.DomainRDFWriter
 import its.model.definition.rdf.RDFUtils
 import its.model.nodes.DecisionTree
+import its.model.nodes.DecisionTreeNode
+import its.model.nodes.allNodes
+import its.model.nodes.childrenSummary
+import its.model.nodes.toJsonMap
+import its.model.nodes.toView
 import its.model.nodes.xml.DecisionTreeXMLBuilder
 import its.model.nodes.xml.DecisionTreeXMLWriter
 import org.vstu.compprehension.toolchain.boolOr
 import org.vstu.compprehension.toolchain.child
+import org.vstu.compprehension.toolchain.intOrNull
 import org.vstu.compprehension.toolchain.rpc.ParamDoc
 import org.vstu.compprehension.toolchain.rpc.ResultDoc
 import org.vstu.compprehension.toolchain.rpc.RpcCall
@@ -47,6 +53,7 @@ object DomainService {
             validateDsm(),
             treeLoqiToXml(),
             decompileTree(),
+            discoverTree(),
             dictToLoqi(),
             validateDomainLoqi(),
             domainToRdf(),
@@ -144,6 +151,100 @@ object DomainService {
             "tpg" to writer.toString(),
             "warning" to EXPERIMENTAL_DECOMPILE_WARNING,
         )
+    }
+
+    // ------------------------------------------------------------------ discover-tree
+
+    private fun discoverTree() = RpcMethod(
+        name = "discover-tree",
+        summary = "Search decision tree nodes by metadata",
+        description = "Parses a decision tree (LOQI/TPG or XML) and returns nodes whose metadata match the given " +
+            "name/value criteria. Multiple criteria are combined with AND unless 'union' is set. If 'line' is " +
+            "among the criteria, a LOQI/TPG tree is built with debug metadata so 'line' becomes searchable.",
+        params = listOf(
+            ParamDoc("treeLoqi", "Decision tree in LOQI/TPG format. Exactly one of treeLoqi/treeXml is required.", false, Schemas.fileSource()),
+            ParamDoc("treeXml", "Decision tree in XML format. Exactly one of treeLoqi/treeXml is required.", false, Schemas.fileSource()),
+            ParamDoc("meta", "Metadata search criteria; at least one is required.", true, Schemas.array(metaCriterionSchema())),
+            ParamDoc("union", "Combine criteria with OR instead of AND.", false, Schemas.boolean(false)),
+            ParamDoc("limit", "Maximum number of nodes to return. If omitted, all matches are returned.", false, Schemas.integer()),
+            ParamDoc(
+                "debug",
+                "Build LOQI/TPG trees with debug metadata (line) even if 'line' isn't among the criteria.",
+                false,
+                Schemas.boolean(false),
+            ),
+            ParamDoc(
+                "children",
+                "Include immediate (depth-1) child nodes of each match: total count plus id/line/skill " +
+                    "descriptors of named children.",
+                false,
+                Schemas.boolean(false),
+            ),
+        ),
+        result = ResultDoc("result", "found/shown counts and matching nodes (nodeType + metadata).", Schemas.obj()),
+    ) { call ->
+        val criteria = parseMetaCriteria(call.params)
+        if (criteria.isEmpty()) invalidParams("'meta' must contain at least one {name, value} criterion")
+        val union = call.params.boolOr("union", false)
+        val limit = call.params.intOrNull("limit")?.also { if (it < 0) invalidParams("limit must be non-negative") }
+        val debug = call.params.boolOr("debug", false)
+        val debugMeta = debug || criteria.any { (name, _) -> name == "line" }
+        val includeChildren = call.params.boolOr("children", false)
+
+        val decisionTree = loadDecisionTreeForDiscovery(call, debugMeta)
+        val matches = decisionTree.allNodes().filter { it.matchesMetaCriteria(criteria, union) }.toList()
+        val shown = limit?.let { matches.take(it) } ?: matches
+
+        mapOf(
+            "found" to matches.size,
+            "shown" to shown.size,
+            "nodes" to shown.map { node ->
+                val childrenFields = if (includeChildren) mapOf("children" to node.childrenSummary().toJsonMap()) else emptyMap()
+                node.toView().toJsonMap() + childrenFields
+            },
+        )
+    }
+
+    private fun loadDecisionTreeForDiscovery(call: RpcCall, debugMeta: Boolean): DecisionTree {
+        val loqiNode = call.params.child("treeLoqi")
+        val xmlNode = call.params.child("treeXml")
+        if (loqiNode != null && xmlNode != null) invalidParams("Provide only one of 'treeLoqi' or 'treeXml'")
+        if (loqiNode != null) {
+            val loqi = call.workspace.resolveText(loqiNode, "treeLoqi")
+            return StringReader(loqi).use { reader -> TreeLoqiBuilder.buildTree(reader, debugMeta) }
+        }
+        if (xmlNode != null) {
+            val xmlFile = call.workspace.materializeFile(xmlNode, "treeXml", "tree.xml")
+            return DecisionTreeXMLBuilder.fromXMLFile(xmlFile.toUri().toString())
+        }
+        invalidParams("Provide either 'treeLoqi' or 'treeXml'")
+    }
+
+    private fun metaCriterionSchema(): Map<String, Any?> = mapOf(
+        "title" to "MetaCriterion",
+        "type" to "object",
+        "required" to listOf("name", "value"),
+        "properties" to mapOf(
+            "name" to mapOf("type" to "string", "description" to "Metadata property name, e.g. 'id' or 'line'."),
+            "value" to mapOf("type" to "string", "description" to "Expected value (compared against the metadata value's string form)."),
+        ),
+    )
+
+    private fun parseMetaCriteria(params: JsonNode?): List<Pair<String, String>> {
+        val node = params?.child("meta") ?: return emptyList()
+        if (!node.isArray) invalidParams("'meta' must be an array of {name, value} objects")
+        return node.map { entry ->
+            val name = entry.child("name")?.asText() ?: invalidParams("Each 'meta' entry requires a 'name' field")
+            val value = entry.child("value")?.asText() ?: invalidParams("Each 'meta' entry requires a 'value' field")
+            name to value
+        }
+    }
+
+    private fun DecisionTreeNode.matchesMetaCriteria(criteria: List<Pair<String, String>>, union: Boolean): Boolean {
+        val checks = criteria.map { (key, value) ->
+            metadata.entries.any { it.propertyName == key && it.value.toString() == value }
+        }
+        return if (union) checks.any { it } else checks.all { it }
     }
 
     // ------------------------------------------------------------------ dict-to-loqi

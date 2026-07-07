@@ -61,6 +61,9 @@ object Schemas {
     fun obj(description: String? = null): Map<String, Any?> =
         buildMap { put("type", "object"); description?.let { put("description", it) } }
 
+    fun array(items: Map<String, Any?>, description: String? = null): Map<String, Any?> =
+        buildMap { put("type", "array"); put("items", items); description?.let { put("description", it) } }
+
     /** Schema describing the FileSource union accepted by [FileWorkspace]. */
     fun fileSource(): Map<String, Any?> = mapOf(
         "title" to "FileSource",

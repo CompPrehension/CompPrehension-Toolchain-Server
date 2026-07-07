@@ -6,6 +6,8 @@ import its.model.definition.loqi.DomainLoqiBuilder
 import its.model.definition.loqi.DomainLoqiWriter
 import its.model.definition.loqi.OperatorLoqiBuilder
 import its.model.nodes.DecisionTree
+import its.model.nodes.toJsonMap
+import its.model.nodes.toView
 import its.reasoner.LearningSituation
 import its.reasoner.ReasoningControl
 import its.reasoner.ReasoningException
@@ -72,7 +74,7 @@ object ReasonerService {
             ParamDoc("timeMeasure", "Include preparation/solve timing metrics.", false, Schemas.boolean(false)),
             ParamDoc("exportDomain", "Include the resulting specific domain (after reasoning) as LOQI.", false, Schemas.boolean(false)),
         ),
-        result = ResultDoc("result", "branchResult, variables, exceptions, trace and optional metrics/artifact.", Schemas.obj()),
+        result = ResultDoc("result", "branchResult, finalNode, variables, exceptions, trace and optional metrics/artifact.", Schemas.obj()),
     ) { call ->
         val params = call.params
         val verbose = params.boolOr("verbose", false)
@@ -134,6 +136,7 @@ object ReasonerService {
         val exceptions = branchResultExceptionsEvent(trace)
         val result = linkedMapOf<String, Any?>(
             "branchResult" to trace.branchResult.toString(),
+            "finalNode" to trace.resultingNode.toView().toJsonMap(),
             "variables" to variablesEvent(trace)["value"],
             "exceptions" to mapOf("found" to exceptions["found"], "items" to exceptions["value"]),
             "trace" to if (jsonTrace) traceEvent(trace, verbose)["value"] else formatDecisionTreeTrace(trace, verbose),
@@ -168,11 +171,17 @@ object ReasonerService {
             ParamDoc("trace", "Collect and return the expression trace.", false, Schemas.boolean(false)),
             ParamDoc("verbose", "Verbose trace formatting.", false, Schemas.boolean(false)),
             ParamDoc("limit", "Maximum number of found objects to return.", false, Schemas.integer()),
+            ParamDoc(
+                "loqi",
+                "Serialize each found object into LOQI (obj declaration) using DomainModel's LOQI writer.",
+                false,
+                Schemas.boolean(false),
+            ),
             ParamDoc("jsonTrace", "Return the trace as structured JSON (true) or a formatted string (false).", false, Schemas.boolean(true)),
             ParamDoc("timeLimitSeconds", "Stop query execution after the given number of seconds.", false, Schemas.integer()),
             ParamDoc("timeMeasure", "Include query timing metric.", false, Schemas.boolean(false)),
         ),
-        result = ResultDoc("result", "objects, optional trace and optional metric.", Schemas.obj()),
+        result = ResultDoc("result", "objects, optional objectsLoqi, optional trace and optional metric.", Schemas.obj()),
     ) { call ->
         val params = call.params
         val limit = params.intOrNull("limit")?.also { if (it < 0) invalidParams("limit must be non-negative") }
@@ -213,6 +222,11 @@ object ReasonerService {
         }
 
         val result = linkedMapOf<String, Any?>("objects" to queryResult.objectRefs.map { it.objectName })
+        if (params.boolOr("loqi", false)) {
+            result["objectsLoqi"] = queryResult.objectRefs.map { ref ->
+                mapOf("name" to ref.objectName, "loqi" to objectLoqiText(ref, situation.domainModel))
+            }
+        }
         if (collectTrace) {
             result["trace"] = if (jsonTrace) expressionTraceEvent(queryResult.trace, verbose)["value"]
             else formatExpressionTraces(queryResult.trace, verbose)
@@ -255,6 +269,11 @@ object ReasonerService {
         if (timeLimitSeconds == null) return ReasoningControl.NONE
         if (timeLimitSeconds <= 0) invalidParams("timeLimitSeconds must be positive")
         return ReasoningControl.withTimeLimitSeconds(timeLimitSeconds)
+    }
+
+    private fun objectLoqiText(objectRef: its.model.definition.types.Obj, domainModel: DomainModel): String {
+        val objectDef = objectRef.findInOrUnkown(domainModel)
+        return StringWriter().also { DomainLoqiWriter.saveObject(objectDef, it) }.toString()
     }
 
     private fun writeSpecificDomain(domainModel: DomainModel, baseDomain: DomainModel): String {
