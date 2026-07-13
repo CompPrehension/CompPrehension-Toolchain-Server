@@ -116,17 +116,17 @@ object ReasonerService {
                 "rootCause" to rootEx.javaClass.name,
                 "rootCauseMessage" to rootEx.message,
                 "stackTrace" to shortStackTrace(e),
-                "variables" to variablesEvent(situation.decisionTreeVariables.toMap())["value"],
+                "variables" to variablesEvent(situation.decisionTreeVariables.toMap(), situation.domainModel)["value"],
             )
             if (debug) {
                 re?.expressionTrace?.let { exTrace ->
                     data["partialExpressionTrace"] = if (jsonTrace)
-                        partialExpressionTraceEvent(exTrace, verbose)["value"]
+                        partialExpressionTraceEvent(exTrace, verbose, situation.domainModel)["value"]
                     else formatExpressionTraces(exTrace, verbose)
                 }
                 re?.partialDecisionTreeTrace?.let { pt ->
                     data["partialTrace"] = if (jsonTrace)
-                        partialTraceEvent(pt, verbose)["value"]
+                        partialTraceEvent(pt, verbose, situation.domainModel)["value"]
                     else formatPartialDecisionTreeTrace(pt, verbose)
                 }
             }
@@ -137,9 +137,9 @@ object ReasonerService {
         val result = linkedMapOf<String, Any?>(
             "branchResult" to trace.branchResult.toString(),
             "finalNode" to trace.resultingNode.toView().toJsonMap(),
-            "variables" to variablesEvent(trace)["value"],
+            "variables" to variablesEvent(trace, situation.domainModel)["value"],
             "exceptions" to mapOf("found" to exceptions["found"], "items" to exceptions["value"]),
-            "trace" to if (jsonTrace) traceEvent(trace, verbose)["value"] else formatDecisionTreeTrace(trace, verbose),
+            "trace" to if (jsonTrace) traceEvent(trace, verbose, situation.domainModel)["value"] else formatDecisionTreeTrace(trace, verbose),
         )
         if (params.boolOr("timeMeasure", false)) {
             result["metrics"] = mapOf(
@@ -214,7 +214,7 @@ object ReasonerService {
             if (debug && collectTrace) {
                 e.findReasoningCause()?.expressionTrace?.let { exTrace ->
                     data["partialExpressionTrace"] = if (jsonTrace)
-                        partialExpressionTraceEvent(exTrace, verbose)["value"]
+                        partialExpressionTraceEvent(exTrace, verbose, situation.domainModel)["value"]
                     else formatExpressionTraces(exTrace, verbose)
                 }
             }
@@ -228,7 +228,7 @@ object ReasonerService {
             }
         }
         if (collectTrace) {
-            result["trace"] = if (jsonTrace) expressionTraceEvent(queryResult.trace, verbose)["value"]
+            result["trace"] = if (jsonTrace) expressionTraceEvent(queryResult.trace, verbose, situation.domainModel)["value"]
             else formatExpressionTraces(queryResult.trace, verbose)
         }
         if (params.boolOr("timeMeasure", false)) {
