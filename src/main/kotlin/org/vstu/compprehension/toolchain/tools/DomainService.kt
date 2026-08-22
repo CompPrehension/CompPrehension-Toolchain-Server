@@ -175,7 +175,7 @@ object DomainService {
             ),
             ParamDoc(
                 "children",
-                "Include immediate (depth-1) child nodes of each match: total count plus id/line/skill " +
+                "Include immediate (depth-1) child nodes of each match: total count plus id/alias/line/skill " +
                     "descriptors of named children.",
                 false,
                 Schemas.boolean(false),

@@ -23,8 +23,8 @@
         <maven.compiler.release>21</maven.compiler.release>
 
         <!-- Versions of the wrapped CompPrehension toolchains (resolved from ~/.m2 or jitpack). -->
-        <its.domainmodel.version>3.0.0-alpha.7</its.domainmodel.version>
-        <its.reasoner.version>3.0.0-alpha.3</its.reasoner.version>
+        <its.domainmodel.version>3.0.0-rc.1</its.domainmodel.version>
+        <its.reasoner.version>3.0.0-rc.1</its.reasoner.version>
         <meaningtree.version>1.0-SNAPSHOT</meaningtree.version>
 
         <javalin.version>6.7.0</javalin.version>
