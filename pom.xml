@@ -30,6 +30,10 @@
         <javalin.version>6.7.0</javalin.version>
         <jackson.version>2.18.2</jackson.version>
         <slf4j.version>2.0.16</slf4j.version>
+        <!-- meaning_tree's commons-text:1.15.0 requires commons-lang3 3.20.0 (Range.of(Comparable, Comparable)).
+             its_DomainModel pulls an older 3.12.0 transitively via opencsv; without this direct pin, Maven's
+             nearest-wins mediation picks the older one and the shaded jar throws NoSuchMethodError at runtime. -->
+        <commons.lang3.version>3.20.0</commons.lang3.version>
 
         <main.class>org.vstu.compprehension.toolchain.ServerMainKt</main.class>
     </properties>
@@ -73,6 +77,11 @@
             <groupId>org.vstu.meaningtree</groupId>
             <artifactId>application</artifactId>
             <version>${meaningtree.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>${commons.lang3.version}</version>
         </dependency>
 
         <!-- HTTP layer -->

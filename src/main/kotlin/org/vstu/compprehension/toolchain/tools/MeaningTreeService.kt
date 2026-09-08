@@ -19,12 +19,14 @@ import org.vstu.compprehension.toolchain.rpc.invalidParams
 import org.vstu.compprehension.toolchain.textOrNull
 import org.vstu.meaningtree.Main
 import org.vstu.meaningtree.MeaningTree
+import org.vstu.meaningtree.SupportedLanguage
 import org.vstu.meaningtree.languages.LanguageTranslator
 import org.vstu.meaningtree.languages.SourceMapGenerator
 import org.vstu.meaningtree.languages.configs.Config
 import org.vstu.meaningtree.languages.configs.ConfigBuilder
 import org.vstu.meaningtree.languages.configs.ConfigParameters
 import org.vstu.meaningtree.nodes.Node
+import org.vstu.meaningtree.utils.Label
 import org.vstu.meaningtree.serializers.dot.GraphvizDotSerializer
 import org.vstu.meaningtree.serializers.json.JsonDeserializer
 import org.vstu.meaningtree.serializers.json.JsonSerializer
@@ -155,7 +157,7 @@ object MeaningTreeService {
         val toLang = to!!
         val toTranslator = newTranslator(toLang, toConfig)
         if (sourceMap) {
-            val srcMap = SourceMapGenerator(toTranslator).process(meaningTree)
+            val srcMap = SourceMapGenerator(toTranslator, fromTranslator).process(meaningTree)
             return sourceMapResult(serializeOrFail(srcMap, "json", prettify))
         }
         if (tokenize) {
@@ -224,7 +226,8 @@ object MeaningTreeService {
 
         if (isNode) {
             if (sourceMap) {
-                val srcMap = SourceMapGenerator(toTranslator).process(target as Node)
+                // Node has no ORIGIN label (it lives on the tree), so no origin translator here.
+                val srcMap = SourceMapGenerator(toTranslator, null).process(target as Node)
                 val fmt = outputFormat ?: "json"
                 return sourceMapResult(serializeOrFail(srcMap, fmt, prettify))
             }
@@ -232,7 +235,7 @@ object MeaningTreeService {
         }
         val tree = target as MeaningTree
         if (sourceMap) {
-            val srcMap = SourceMapGenerator(toTranslator).process(tree)
+            val srcMap = SourceMapGenerator(toTranslator, originTranslatorOf(tree)).process(tree)
             val fmt = outputFormat ?: "json"
             return sourceMapResult(serializeOrFail(srcMap, fmt, prettify))
         }
@@ -305,6 +308,17 @@ object MeaningTreeService {
 
     private fun newTranslator(language: String, config: Config): LanguageTranslator =
         translators.getValue(language).getDeclaredConstructor(Config::class.java).newInstance(config)
+
+    /**
+     * Translator for the language a deserialized tree came from, recovered from its
+     * [Label.ORIGIN] label. Mirrors `Main.originTranslatorOf`: needed so the source map's
+     * origin_scope_table reflects the source language's own scoping rules, not the target's.
+     */
+    private fun originTranslatorOf(tree: MeaningTree): LanguageTranslator? {
+        if (!tree.hasLabel(Label.ORIGIN)) return null
+        val language = SupportedLanguage.from(tree.getLabel(Label.ORIGIN).attributeAsInt()) ?: return null
+        return language.createTranslator().orElse(null)
+    }
 
     private fun parseMode(value: String?): Main.TranslatorMode {
         if (value == null) return Main.TranslatorMode.full
