@@ -90,9 +90,9 @@ object MeaningTreeService {
             ParamDoc("startNodeId", "Start id for the node id counter.", false, Schemas.integer()),
             ParamDoc("startTokenId", "Start id for the token id counter.", false, Schemas.integer()),
             ParamDoc("config", "Translator config (JSON object) applied per source/target translator.", false, Schemas.obj()),
-            ParamDoc("project", "Project source context: object {root, currentFile} or '<root><sep><relPath>'.", false, Schemas.obj()),
+            ParamDoc("project", "Project source context: object {root, currentFile} or '<root><sep><relPath>'.", false, Schemas.projectSource()),
         ),
-        result = ResultDoc("result", "kind (code|serialized|tokens|sourceMap), format and the output string.", Schemas.obj()),
+        result = ResultDoc("result", "kind (code|serialized|tokens|sourceMap), format and the output string.", operationResultSchema()),
     ) { call ->
         synchronized(mtLock) { runTranslate(call) }
     }
@@ -158,7 +158,7 @@ object MeaningTreeService {
         val toTranslator = newTranslator(toLang, toConfig)
         if (sourceMap) {
             val srcMap = SourceMapGenerator(toTranslator, fromTranslator).process(meaningTree)
-            return sourceMapResult(serializeOrFail(srcMap, "json", prettify))
+            return sourceMapResult("json", serializeOrFail(srcMap, "json", prettify))
         }
         if (tokenize) {
             Token.setupId(p.longOrNull("startTokenId") ?: 0)
@@ -189,7 +189,7 @@ object MeaningTreeService {
             ParamDoc("startTokenId", "Start id for the token id counter.", false, Schemas.integer()),
             ParamDoc("config", "Translator config (JSON object) applied to the target translator.", false, Schemas.obj()),
         ),
-        result = ResultDoc("result", "kind, format and the output string.", Schemas.obj()),
+        result = ResultDoc("result", "kind, format and the output string.", operationResultSchema()),
     ) { call ->
         synchronized(mtLock) { runGenerate(call) }
     }
@@ -229,7 +229,7 @@ object MeaningTreeService {
                 // Node has no ORIGIN label (it lives on the tree), so no origin translator here.
                 val srcMap = SourceMapGenerator(toTranslator, null).process(target as Node)
                 val fmt = outputFormat ?: "json"
-                return sourceMapResult(serializeOrFail(srcMap, fmt, prettify))
+                return sourceMapResult(fmt, serializeOrFail(srcMap, fmt, prettify))
             }
             return code(toLang, toTranslator.getCode(target as Node))
         }
@@ -237,7 +237,7 @@ object MeaningTreeService {
         if (sourceMap) {
             val srcMap = SourceMapGenerator(toTranslator, originTranslatorOf(tree)).process(tree)
             val fmt = outputFormat ?: "json"
-            return sourceMapResult(serializeOrFail(srcMap, fmt, prettify))
+            return sourceMapResult(fmt, serializeOrFail(srcMap, fmt, prettify))
         }
         if (tokenize) {
             Token.setupId(p.longOrNull("startTokenId") ?: 0)
@@ -255,7 +255,11 @@ object MeaningTreeService {
         summary = "List supported languages",
         description = "Returns all source/target languages supported by meaning_tree.",
         params = emptyList(),
-        result = ResultDoc("result", "Supported language identifiers.", Schemas.obj()),
+        result = ResultDoc(
+            "result",
+            "Supported language identifiers.",
+            Schemas.objectSchema(mapOf("languages" to Schemas.array(Schemas.string()))),
+        ),
     ) { _ -> mapOf("languages" to translators.keys.sorted()) }
 
     private fun nodeHierarchy() = RpcMethod(
@@ -263,7 +267,11 @@ object MeaningTreeService {
         summary = "List supported Meaning Tree nodes and their parents",
         description = "Returns the node type hierarchy as a JSON object.",
         params = listOf(ParamDoc("prettify", "Unused (kept for CLI parity); the hierarchy is returned as structured JSON.", false, Schemas.boolean(false))),
-        result = ResultDoc("result", "The node hierarchy.", Schemas.obj()),
+        result = ResultDoc(
+            "result",
+            "The node hierarchy.",
+            Schemas.objectSchema(mapOf("hierarchy" to Schemas.obj())),
+        ),
     ) { _ ->
         val hierarchy: JsonObject = JsonTypeHierarchyBuilder.generateHierarchyJsonObject()
         mapOf("hierarchy" to Json.parse(gson.toJson(hierarchy)))
@@ -351,8 +359,16 @@ object MeaningTreeService {
         translator.withSourceContext(Path.of(root), Path.of(currentFile))
     }
 
+    private fun operationResultSchema(): Map<String, Any?> = Schemas.objectSchema(
+        properties = mapOf(
+            "kind" to Schemas.enumOf("code", "serialized", "tokens", "sourceMap"),
+            "format" to Schemas.string(),
+            "result" to Schemas.string(),
+        ),
+    )
+
     private fun serialized(format: String, value: String) = mapOf("kind" to "serialized", "format" to format, "result" to value)
     private fun tokensResult(format: String, value: String) = mapOf("kind" to "tokens", "format" to format, "result" to value)
-    private fun sourceMapResult(value: String) = mapOf("kind" to "sourceMap", "format" to "json", "result" to value)
+    private fun sourceMapResult(format: String, value: String) = mapOf("kind" to "sourceMap", "format" to format, "result" to value)
     private fun code(language: String, value: String) = mapOf("kind" to "code", "format" to language, "result" to value)
 }

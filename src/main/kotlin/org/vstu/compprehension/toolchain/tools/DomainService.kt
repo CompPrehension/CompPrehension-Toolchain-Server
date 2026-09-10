@@ -72,7 +72,14 @@ object DomainService {
             ParamDoc("buildMethod", "How to build the model.", false, Schemas.enumOf("LOQI", "DICT_RDF")),
             ParamDoc("debug", "Skip the check for debug-namespace procedures in decision trees.", false, Schemas.boolean(false)),
         ),
-        result = ResultDoc("result", "Validation outcome.", Schemas.obj()),
+        result = ResultDoc(
+            "result",
+            "Validation outcome.",
+            Schemas.objectSchema(mapOf(
+                "valid" to Schemas.boolean(),
+                "buildMethod" to Schemas.enumOf("LOQI", "DICT_RDF"),
+            )),
+        ),
     ) { call ->
         val dir = call.workspace.materializeDir(call.params.child("model"), "model")
         val buildMethod = parseBuildMethod(call.params.textOrNull("buildMethod"))
@@ -93,7 +100,17 @@ object DomainService {
             ParamDoc("tag", "Domain tag used for validation (requires modelDir).", false, Schemas.string()),
             ParamDoc("useCDataExpressions", "Write expressions as CDATA with LOQI representation.", false, Schemas.boolean(false)),
         ),
-        result = ResultDoc("result", "The XML string and optional validation info.", Schemas.obj()),
+        result = ResultDoc(
+            "result",
+            "The XML string and optional validation info.",
+            Schemas.objectSchema(
+                properties = mapOf(
+                    "xml" to Schemas.string(),
+                    "validatedFor" to Schemas.objectSchema(mapOf("tag" to Schemas.nullable(Schemas.string()))),
+                ),
+                required = listOf("xml"),
+            ),
+        ),
     ) { call ->
         val loqi = call.workspace.resolveText(call.params.child("treeLoqi"), "treeLoqi")
         val decisionTree = StringReader(loqi).use(TreeLoqiBuilder::buildTree)
@@ -140,7 +157,14 @@ object DomainService {
             ParamDoc("treeXml", "Decision tree in XML format.", true, Schemas.fileSource()),
             ParamDoc("treeName", "Tree name used in the TPG header.", false, Schemas.string()),
         ),
-        result = ResultDoc("result", "The TPG/LOQI string plus an experimental warning.", Schemas.obj()),
+        result = ResultDoc(
+            "result",
+            "The TPG/LOQI string plus an experimental warning.",
+            Schemas.objectSchema(mapOf(
+                "tpg" to Schemas.string(),
+                "warning" to Schemas.string(),
+            )),
+        ),
     ) { call ->
         val xmlFile: Path = call.workspace.materializeFile(call.params.child("treeXml"), "treeXml", "tree.xml")
         val treeName = call.params.textOrNull("treeName") ?: "ExprEval"
@@ -181,7 +205,15 @@ object DomainService {
                 Schemas.boolean(false),
             ),
         ),
-        result = ResultDoc("result", "found/shown counts and matching nodes (nodeType + metadata).", Schemas.obj()),
+        result = ResultDoc(
+            "result",
+            "found/shown counts and matching nodes (nodeType + metadata).",
+            Schemas.objectSchema(mapOf(
+                "found" to Schemas.integer(),
+                "shown" to Schemas.integer(),
+                "nodes" to Schemas.array(Schemas.obj()),
+            )),
+        ),
     ) { call ->
         val criteria = parseMetaCriteria(call.params)
         if (criteria.isEmpty()) invalidParams("'meta' must contain at least one {name, value} criterion")
@@ -258,7 +290,14 @@ object DomainService {
             ParamDoc("separateMetadata", "Emit metadata in separate LOQI sections.", false, Schemas.boolean(false)),
             ParamDoc("separateClassPropertyValues", "Emit class property values in separate LOQI sections.", false, Schemas.boolean(false)),
         ),
-        result = ResultDoc("result", "domain.loqi content and copied tree files.", Schemas.obj()),
+        result = ResultDoc(
+            "result",
+            "domain.loqi content and copied tree files.",
+            Schemas.objectSchema(mapOf(
+                "domainLoqi" to Schemas.string(),
+                "trees" to mapOf("type" to "object", "additionalProperties" to Schemas.string()),
+            )),
+        ),
     ) { call ->
         val dir = call.workspace.materializeDir(call.params.child("model"), "model")
         val domain = DomainDictionariesRDFBuilder.buildDomain(dir.toString())
@@ -280,7 +319,18 @@ object DomainService {
             ParamDoc("tag", "Tag from the model to merge.", false, Schemas.string()),
             ParamDoc("printMergedLoqi", "Include the merged model as LOQI in the response.", false, Schemas.boolean(false)),
         ),
-        result = ResultDoc("result", "Validation outcome and optional merged LOQI.", Schemas.obj()),
+        result = ResultDoc(
+            "result",
+            "Validation outcome and optional merged LOQI.",
+            Schemas.objectSchema(
+                properties = mapOf(
+                    "valid" to Schemas.boolean(),
+                    "tag" to Schemas.nullable(Schemas.string()),
+                    "mergedLoqi" to Schemas.string(),
+                ),
+                required = listOf("valid", "tag"),
+            ),
+        ),
     ) { call ->
         val dir = call.workspace.materializeDir(call.params.child("model"), "model")
         val extraLoqi = call.workspace.resolveText(call.params.child("domainLoqi"), "domainLoqi")
@@ -312,7 +362,14 @@ object DomainService {
             ParamDoc("basePrefix", "Base RDF prefix for created resources.", false, Schemas.string()),
             ParamDoc("oldNaryCompat", "Use the legacy n-ary relationship representation.", false, Schemas.boolean(false)),
         ),
-        result = ResultDoc("result", "The TTL string.", Schemas.obj()),
+        result = ResultDoc(
+            "result",
+            "The TTL string.",
+            Schemas.objectSchema(mapOf(
+                "ttl" to Schemas.string(),
+                "basePrefix" to Schemas.string(),
+            )),
+        ),
     ) { call ->
         val domain = resolveConcreteDomain(call)
         domain.validateAndThrow()
@@ -342,7 +399,11 @@ object DomainService {
             ParamDoc("separateMetadata", "Emit metadata in separate LOQI sections.", false, Schemas.boolean(false)),
             ParamDoc("separateClassPropertyValues", "Emit class property values in separate LOQI sections.", false, Schemas.boolean(false)),
         ),
-        result = ResultDoc("result", "The LOQI string.", Schemas.obj()),
+        result = ResultDoc(
+            "result",
+            "The LOQI string.",
+            Schemas.objectSchema(mapOf("loqi" to Schemas.string())),
+        ),
     ) { call ->
         val domain = resolveConcreteDomain(call)
         val ttlFile = call.workspace.materializeFile(call.params.child("rdfTtl"), "rdfTtl", "data.ttl")

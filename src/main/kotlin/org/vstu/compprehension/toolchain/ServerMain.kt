@@ -95,6 +95,12 @@ private fun handleMcp(mcp: McpBridge, ctx: Context) {
     } catch (e: Exception) {
         return writeError(ctx, RpcErrorCodes.PARSE_ERROR, "Invalid JSON: ${e.message}")
     }
+    McpBridge.protocolVersionError(body.get("method")?.asText(), ctx.header("MCP-Protocol-Version"))?.let { message ->
+        ctx.status(400).contentType("application/json").result(Json.writeString(
+            RpcResponse.failure(body.get("id") ?: NullNode.instance, RpcError(RpcErrorCodes.INVALID_REQUEST, message))
+        ))
+        return
+    }
     val result = mcp.handle(body)
     if (result == null) {
         ctx.status(202) // notification: accepted, no response body

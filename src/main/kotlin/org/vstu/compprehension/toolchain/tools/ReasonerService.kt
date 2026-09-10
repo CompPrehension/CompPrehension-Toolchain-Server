@@ -74,7 +74,11 @@ object ReasonerService {
             ParamDoc("timeMeasure", "Include preparation/solve timing metrics.", false, Schemas.boolean(false)),
             ParamDoc("exportDomain", "Include the resulting specific domain (after reasoning) as LOQI.", false, Schemas.boolean(false)),
         ),
-        result = ResultDoc("result", "branchResult, finalNode, variables, exceptions, trace and optional metrics/artifact.", Schemas.obj()),
+        result = ResultDoc(
+            "result",
+            "branchResult, finalNode, variables, exceptions, trace and optional metrics/artifact.",
+            reasonResultSchema(),
+        ),
     ) { call ->
         val params = call.params
         val verbose = params.boolOr("verbose", false)
@@ -181,7 +185,11 @@ object ReasonerService {
             ParamDoc("timeLimitSeconds", "Stop query execution after the given number of seconds.", false, Schemas.integer()),
             ParamDoc("timeMeasure", "Include query timing metric.", false, Schemas.boolean(false)),
         ),
-        result = ResultDoc("result", "objects, optional objectsLoqi, optional trace and optional metric.", Schemas.obj()),
+        result = ResultDoc(
+            "result",
+            "objects, optional objectsLoqi, optional trace and optional metric.",
+            expressionQueryResultSchema(),
+        ),
     ) { call ->
         val params = call.params
         val limit = params.intOrNull("limit")?.also { if (it < 0) invalidParams("limit must be non-negative") }
@@ -255,6 +263,46 @@ object ReasonerService {
         }
         return LearningSituation(situationDomain, solvingContext = model)
     }
+
+    private fun reasonResultSchema(): Map<String, Any?> = Schemas.objectSchema(
+        properties = mapOf(
+            "branchResult" to Schemas.string(),
+            "finalNode" to Schemas.obj(),
+            "variables" to Schemas.any(),
+            "exceptions" to Schemas.objectSchema(mapOf(
+                "found" to Schemas.boolean(),
+                "items" to Schemas.array(Schemas.obj()),
+            )),
+            "trace" to Schemas.any(),
+            "metrics" to Schemas.objectSchema(mapOf(
+                "preparation" to durationSchema(),
+                "solve" to durationSchema(),
+            )),
+            "specificDomain" to Schemas.objectSchema(mapOf(
+                "format" to Schemas.string(),
+                "value" to Schemas.string(),
+            )),
+        ),
+        required = listOf("branchResult", "finalNode", "variables", "exceptions", "trace"),
+    )
+
+    private fun expressionQueryResultSchema(): Map<String, Any?> = Schemas.objectSchema(
+        properties = mapOf(
+            "objects" to Schemas.array(Schemas.string()),
+            "objectsLoqi" to Schemas.array(Schemas.objectSchema(mapOf(
+                "name" to Schemas.string(),
+                "loqi" to Schemas.string(),
+            ))),
+            "trace" to Schemas.any(),
+            "metrics" to Schemas.objectSchema(mapOf("query" to durationSchema())),
+        ),
+        required = listOf("objects"),
+    )
+
+    private fun durationSchema(): Map<String, Any?> = Schemas.objectSchema(mapOf(
+        "seconds" to Schemas.number(),
+        "milliseconds" to Schemas.number(),
+    ))
 
     private fun resolveBaseDomain(model: DomainSolvingModel, tag: String?): DomainModel {
         if (tag == null) return model.domainModel

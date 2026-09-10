@@ -10,6 +10,7 @@ import org.vstu.compprehension.toolchain.rpc.RpcErrorCodes
 import org.vstu.compprehension.toolchain.rpc.RpcException
 import org.vstu.compprehension.toolchain.rpc.RpcMethod
 import org.vstu.compprehension.toolchain.rpc.RpcResponse
+import org.vstu.compprehension.toolchain.rpc.Schemas
 import org.vstu.compprehension.toolchain.rpc.ToolModule
 
 /**
@@ -86,13 +87,18 @@ class McpBridge(
 
     // ---- MCP methods -----------------------------------------------------------------------------
 
-    private fun initialize(params: JsonNode?): Map<String, Any?> = mapOf(
-        // Echo the client's requested protocol version when present; otherwise offer our default.
-        "protocolVersion" to (params.textOrNull("protocolVersion") ?: DEFAULT_PROTOCOL_VERSION),
-        "capabilities" to mapOf("tools" to mapOf("listChanged" to false)),
-        "serverInfo" to mapOf("name" to serverName, "version" to version),
-        "instructions" to INSTRUCTIONS,
-    )
+    private fun initialize(params: JsonNode?): Map<String, Any?> {
+        val requestedVersion = params.textOrNull("protocolVersion")
+            ?: throw RpcException(RpcErrorCodes.INVALID_PARAMS, "initialize requires a 'protocolVersion'")
+        val negotiatedVersion = requestedVersion.takeIf { it in SUPPORTED_PROTOCOL_VERSIONS }
+            ?: DEFAULT_PROTOCOL_VERSION
+        return mapOf(
+            "protocolVersion" to negotiatedVersion,
+            "capabilities" to mapOf("tools" to mapOf("listChanged" to false)),
+            "serverInfo" to mapOf("name" to serverName, "version" to version),
+            "instructions" to INSTRUCTIONS,
+        )
+    }
 
     private fun toolsList(): Map<String, Any?> =
         mapOf("tools" to tools.map { (name, method) -> toolDescriptor(name, method) })
@@ -151,7 +157,7 @@ class McpBridge(
         val properties = LinkedHashMap<String, Any?>()
         val required = ArrayList<String>()
         for (param in method.params) {
-            properties[param.name] = param.schema
+            properties[param.name] = Schemas.forMcp(param.schema)
             if (param.required) required.add(param.name)
         }
         return buildMap {
@@ -165,12 +171,25 @@ class McpBridge(
         /** Latest MCP protocol revision we implement; used when the client doesn't request one. */
         const val DEFAULT_PROTOCOL_VERSION = "2025-06-18"
 
+        /** Version assumed by the Streamable HTTP specification when the request header is absent. */
+        const val LEGACY_PROTOCOL_VERSION = "2025-03-26"
+
+        val SUPPORTED_PROTOCOL_VERSIONS: Set<String> =
+            setOf(DEFAULT_PROTOCOL_VERSION, LEGACY_PROTOCOL_VERSION)
+
+        fun protocolVersionError(method: String?, headerValue: String?): String? {
+            if (method == "initialize") return null
+            val version = headerValue ?: LEGACY_PROTOCOL_VERSION
+            return if (version in SUPPORTED_PROTOCOL_VERSIONS) null
+            else "Unsupported MCP-Protocol-Version '$version'. Supported: ${SUPPORTED_PROTOCOL_VERSIONS.sorted()}"
+        }
+
         /** MCP clients commonly restrict tool names to this character set. */
         private val TOOL_NAME_PATTERN = Regex("^[A-Za-z0-9_-]+\$")
 
         private val INSTRUCTIONS = """
             CompPrehension toolchain exposed over MCP. Tools are named <module>__<method>, e.g.
-            'meaning-tree__list-langs' or 'domain__validateDsm'; each tool's inputSchema documents its
+            'meaning-tree__list-langs' or 'domain__validate-dsm'; each tool's inputSchema documents its
             arguments.
 
             File/directory arguments use the FileSource/DirSource convention. Over MCP a FileSource is
