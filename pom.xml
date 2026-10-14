@@ -45,19 +45,6 @@
         </repository>
     </repositories>
 
-    <dependencyManagement>
-        <dependencies>
-            <!-- its_DomainModel pulls several commons-lang3 versions transitively (opencsv, Jena), which
-                 breaks requireUpperBoundDeps. Shade excludes them anyway in favour of the copy bundled in
-                 meaning_tree's application.jar, so pin compile-time resolution to that same version. -->
-            <dependency>
-                <groupId>org.apache.commons</groupId>
-                <artifactId>commons-lang3</artifactId>
-                <version>3.20.0</version>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
-
     <dependencies>
         <!-- Kotlin runtime -->
         <dependency>
@@ -71,20 +58,59 @@
             <version>${kotlin.version}</version>
         </dependency>
 
-        <!-- Wrapped CompPrehension toolchains, called in-process -->
+        <!-- Wrapped CompPrehension toolchains, called in-process.
+             org.vstu.meaningtree:application (below) already bundles self-consistent copies of Jena,
+             commons-lang3 and commons-text, built and tested together by meaning_tree's own release. The its_*
+             toolchains pull their own standalone versions of the same libraries (and Jena drags in a long tail
+             of its own: gson, caffeine, protobuf, libthrift, titanium-*, ...). If both copies reach the shade
+             plugin, it keeps an arbitrary mix of classes per package and the mismatch surfaces as
+             NoSuchMethodError at runtime (e.g. Jena's Assembler.general(), or commons-lang3's
+             Range.of(Comparable, Comparable)) - or worse, a self-consistent-but-stale pair that happens not to
+             crash on whatever path you tested. The competing copies also break requireUpperBoundDeps.
+             Pinning exact versions in dependencyManagement would work too, but would silently go stale the next
+             time application.jar's bundled versions move; excluding the standalone copies here stays correct
+             automatically as long as application.jar remains self-contained. -->
         <dependency>
             <groupId>com.github.CompPrehension</groupId>
             <artifactId>its_DomainModel</artifactId>
             <version>${its.domainmodel.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.jena</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.commons</groupId>
+                    <artifactId>commons-lang3</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.commons</groupId>
+                    <artifactId>commons-text</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>com.github.CompPrehension</groupId>
             <artifactId>its_Reasoner</artifactId>
             <version>${its.reasoner.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.jena</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.commons</groupId>
+                    <artifactId>commons-lang3</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.commons</groupId>
+                    <artifactId>commons-text</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!-- meaning_tree's own fat/shaded jar: java/python/cpp-language, Jena, commons-lang3/text, gson and
              tree-sitter are already merged into its bytecode, but its published POM still lists all of that
-             as ordinary transitive dependencies. We drop them all below (see the shade artifactSet excludes)
+             as ordinary transitive dependencies. We drop them all below (see the its_* exclusions above)
              so a consuming build never pulls a second, differently versioned copy on top of the embedded one. -->
         <dependency>
             <groupId>org.vstu.meaningtree</groupId>
@@ -208,26 +234,6 @@
                         </goals>
                         <configuration>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
-                            <!-- org.vstu.meaningtree:application (see its <exclusions> above) already bundles
-                                 self-consistent copies of these libraries, built and tested together by
-                                 meaning_tree's own release. its_DomainModel separately pulls older/different
-                                 versions of the same groupIds (Jena 4.6.1 vs the embedded 5.6.0, commons-lang3
-                                 3.12.0 vs the embedded 3.20.0 that commons-text 1.15.0's StringEscapeUtils
-                                 needs). Without these excludes, shade keeps an arbitrary mix of both versions'
-                                 classes per groupId and the mismatch surfaces as NoSuchMethodError at runtime
-                                 (e.g. Jena's Assembler.general(), or commons-lang3's Range.of(Comparable,
-                                 Comparable)) - or worse, a self-consistent-but-stale pair that happens not to
-                                 crash on whatever path you tested. Pinning exact versions instead would work
-                                 too, but would silently go stale the next time application.jar's own bundled
-                                 versions move; excluding the competing standalone copies stays correct
-                                 automatically as long as application.jar remains self-contained. -->
-                            <artifactSet>
-                                <excludes>
-                                    <exclude>org.apache.jena:*</exclude>
-                                    <exclude>org.apache.commons:commons-lang3</exclude>
-                                    <exclude>org.apache.commons:commons-text</exclude>
-                                </excludes>
-                            </artifactSet>
                             <filters>
                                 <filter>
                                     <artifact>*:*</artifact>
