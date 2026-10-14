@@ -18,16 +18,17 @@ class loading, not the actual work.
 
 This server starts the JVM **once**, loads all three toolchains as ordinary Maven dependencies, and
 calls their library APIs **directly, in-process**. Requests arrive over HTTP and return immediately —
-no per-request process spawn. It can be run locally or on a remote host, and it serves several
-requests concurrently.
+no per-request process spawn. It can be run locally or on a remote host. Concurrency and request
+lifetime are currently weak spots — read [Known limitations](#known-limitations) before relying on it
+as a shared service.
 
 Wherever a CLI printed human-readable text, the server returns **structured JSON** instead. The
 `its_Reasoner` JSON (JSONL) event model is reused as-is.
 
 ## Design at a glance
 
-- **Stack:** Kotlin + [Javalin](https://javalin.io) (embedded Jetty thread pool ⇒ concurrent requests)
-  + Jackson. Built to a single runnable fat JAR with the Maven Shade plugin.
+- **Stack:** Kotlin + [Javalin](https://javalin.io) (embedded Jetty, one pool thread per in-flight
+  request) + Jackson. Built to a single runnable fat JAR with the Maven Shade plugin.
 - **In-process reuse:** the toolchains are consumed as dependencies
   (`com.github.CompPrehension:its_DomainModel`, `com.github.CompPrehension:its_Reasoner`,
   `org.vstu.meaningtree:application`), so their logic runs without subprocesses or stdout capture.
@@ -35,9 +36,42 @@ Wherever a CLI printed human-readable text, the server returns **structured JSON
 - **Auto-generated docs:** an [OpenRPC](https://open-rpc.org) document (the JSON-RPC equivalent of
   OpenAPI/Swagger) is generated per route from the same method registry the server dispatches against,
   so the docs can never drift from the implementation. A self-contained HTML docs page is served too.
-- **Concurrency:** independent requests run in parallel. The few toolchain operations that touch
-  process-global mutable state (the XML writer's CDATA flag; meaning_tree's node/token id counters)
-  are guarded by narrow per-tool locks.
+- **Concurrency:** every request runs synchronously on the Jetty thread that received it. Toolchain
+  operations that touch process-global mutable state (the XML writer's CDATA flag; meaning_tree's
+  node/token id counters) are guarded by per-tool locks — see the limitations below for what that
+  costs.
+
+## Known limitations
+
+The server is a development convenience, not yet a robust multi-user service. Known gaps:
+
+- **meaning_tree is effectively single-threaded.** `translate` and `generate` hold one global lock
+  for the whole call, because meaning_tree keeps its node/token id counters in static fields
+  (`Node.setupId` / `Token.setupId`). Concurrent meaning-tree requests queue up behind each other,
+  regardless of who sent them. (`list-langs` and `node-hierarchy` are not locked.)
+- **Concurrency of the other toolchains is unverified.** `/rpc/domain` and `/rpc/reasoner` calls do
+  run in parallel on Jetty threads, but nobody has audited its_DomainModel / its_Reasoner for
+  thread safety beyond the one CDATA flag we know about. Treat parallel results as "probably fine",
+  not guaranteed.
+- **No request lifetime / timeout.** A tool call runs until it returns. If it loops forever (a
+  pathological input, a reasoner that never terminates), the client waits forever, the Jetty thread
+  is lost and CPU keeps burning. If that happens inside `translate`/`generate`, the meaning-tree lock
+  is never released and the whole `/rpc/meaning-tree` route (and the matching MCP tools) hangs until
+  the server is restarted.
+- **No cancellation.** A client disconnecting, or an MCP `notifications/cancelled`, does not stop
+  the computation — it is silently accepted and the work continues.
+- **No limits, quotas or fairness.** There is no cap on concurrent requests per route or per client,
+  and no notion of a client at all beyond the single shared `ACCESS_SECRET`. One heavy client can
+  occupy every thread (or the meaning-tree lock) and starve everyone else.
+- **Batches run sequentially.** A JSON-RPC batch array is executed item by item on one thread; it is
+  not parallelized and its total time is the sum of its items.
+- **No in-process kill switch.** The JVM cannot forcibly stop a running thread (`Thread.stop` is gone
+  since JDK 20), and the toolchains do not check for interruption. So even once timeouts are added,
+  an in-process timeout can only stop *waiting* — reclaiming the CPU from a runaway call needs
+  process isolation or a restart.
+
+If you need reliable service today: run one server per user/consumer, keep inputs small, and put
+an external timeout (reverse proxy / client-side) plus a watchdog restart in front of it.
 
 ## Prerequisites
 
