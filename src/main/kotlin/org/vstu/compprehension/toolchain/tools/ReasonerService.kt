@@ -71,6 +71,7 @@ object ReasonerService {
             ParamDoc("debug", "Include debug metadata and collect partial traces.", false, Schemas.boolean(false)),
             ParamDoc("jsonTrace", "Return the trace as structured JSON (true) or a formatted string (false).", false, Schemas.boolean(true)),
             ParamDoc("timeLimitSeconds", "Stop reasoning after the given number of seconds.", false, Schemas.integer()),
+            ParamDoc("evaluationCache", "Use the cache of derived model data while evaluating read-only expressions.", false, Schemas.boolean(true)),
             ParamDoc("timeMeasure", "Include preparation/solve timing metrics.", false, Schemas.boolean(false)),
             ParamDoc("exportDomain", "Include the resulting specific domain (after reasoning) as LOQI.", false, Schemas.boolean(false)),
         ),
@@ -91,6 +92,7 @@ object ReasonerService {
         val tag = params.textOrNull("tag")
         val treeName = params.textOrNull("tree") ?: ""
         val control = parseControl(params.longOrNull("timeLimitSeconds"))
+        val useEvaluationCache = params.boolOr("evaluationCache", true)
 
         lateinit var baseDomain: DomainModel
         lateinit var situation: LearningSituation
@@ -110,7 +112,7 @@ object ReasonerService {
         }
         val solveNanos = try {
             measureNanoTime {
-                trace = decisionTree.solve(situation, ReasoningOptions(control, collect, collect))
+                trace = decisionTree.solve(situation, ReasoningOptions(control, collect, collect, useEvaluationCache))
             }
         } catch (e: RuntimeException) {
             val rootEx = rootCause(e)
@@ -183,6 +185,7 @@ object ReasonerService {
             ),
             ParamDoc("jsonTrace", "Return the trace as structured JSON (true) or a formatted string (false).", false, Schemas.boolean(true)),
             ParamDoc("timeLimitSeconds", "Stop query execution after the given number of seconds.", false, Schemas.integer()),
+            ParamDoc("evaluationCache", "Use the cache of derived model data while evaluating read-only expressions.", false, Schemas.boolean(true)),
             ParamDoc("timeMeasure", "Include query timing metric.", false, Schemas.boolean(false)),
         ),
         result = ResultDoc(
@@ -197,6 +200,7 @@ object ReasonerService {
         val verbose = params.boolOr("verbose", false)
         val jsonTrace = params.boolOr("jsonTrace", true)
         val control = parseControl(params.longOrNull("timeLimitSeconds"))
+        val useEvaluationCache = params.boolOr("evaluationCache", true)
 
         val specificLoqi = call.workspace.resolveText(params.child("domainLoqi"), "domainLoqi")
         val queryText = params.textOrNull("query") ?: invalidParams("'query' is required")
@@ -209,7 +213,7 @@ object ReasonerService {
         lateinit var queryResult: its.reasoner.operators.ExpressionQueryResult
         val queryNanos = try {
             measureNanoTime {
-                queryResult = ExpressionQueryManager(situation, control).query(expression, collectTrace, limit)
+                queryResult = ExpressionQueryManager(situation, control, useEvaluationCache).query(expression, collectTrace, limit)
             }
         } catch (e: RuntimeException) {
             val rootEx = rootCause(e)
