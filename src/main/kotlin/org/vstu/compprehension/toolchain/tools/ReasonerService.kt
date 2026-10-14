@@ -320,7 +320,7 @@ object ReasonerService {
     }
 
     private fun objectLoqiText(objectRef: its.model.definition.types.Obj, domainModel: DomainModel): String {
-        val objectDef = objectRef.findInOrUnkown(domainModel)
+        val objectDef = objectRef.findInOrUnknown(domainModel)
         return StringWriter().also { DomainLoqiWriter.saveObject(objectDef, it) }.toString()
     }
 
