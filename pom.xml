@@ -23,8 +23,8 @@
         <maven.compiler.release>21</maven.compiler.release>
 
         <!-- Versions of the wrapped CompPrehension toolchains (resolved from ~/.m2 or jitpack). -->
-        <its.domainmodel.version>3.0.0-rc.1</its.domainmodel.version>
-        <its.reasoner.version>3.0.0-rc.1</its.reasoner.version>
+        <its.domainmodel.version>3.0.0-rc.8</its.domainmodel.version>
+        <its.reasoner.version>3.0.0-rc.9</its.reasoner.version>
         <meaningtree.version>1.0-SNAPSHOT</meaningtree.version>
 
         <javalin.version>6.7.0</javalin.version>
@@ -44,6 +44,19 @@
             <url>https://jitpack.io</url>
         </repository>
     </repositories>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- its_DomainModel pulls several commons-lang3 versions transitively (opencsv, Jena), which
+                 breaks requireUpperBoundDeps. Shade excludes them anyway in favour of the copy bundled in
+                 meaning_tree's application.jar, so pin compile-time resolution to that same version. -->
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>3.20.0</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <!-- Kotlin runtime -->
